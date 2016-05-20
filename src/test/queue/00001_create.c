@@ -47,7 +47,7 @@ int main()
 	printf("Checking producer position...\n");
 	if (ftlh_atomic64_get(&queue->prod_pos) != 0) {
 		printf("Producer position variable not zero: %lu\n",
-			   ftlh_atomic64_get(&queue->prod_cons_pos));
+			   ftlh_atomic64_get(&queue->prod_pos));
 		return 104;
 	}
 
