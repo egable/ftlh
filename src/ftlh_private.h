@@ -15,26 +15,13 @@ struct ftlh_key_s {
 
 struct ftlh_queue_node_s {
 	ftlh_atomicptr_t data;
-	ftlh_atomic64_t state; /* State of the node */
 } __attribute__ ((aligned));
-
-#define FTLH_QUEUE_STATE_FREE 0
-#define FTLH_QUEUE_STATE_PROD 1 /* Reserved, not used */
-#define FTLH_QUEUE_STATE_FULL 2
-#define FTLH_QUEUE_STATE_CONS 3 /* Reserved, not used */
-
-#define FTLH_PROD_MASK 0xFFFFFFFF00000000UL
-#define FTLH_CONS_MASK 0x00000000FFFFFFFFUL
 
 struct ftlh_queue_s {
 	struct ftlh_queue_node_s *nodes; /* The nodes for the queue, aligned */
 
-	/**
-	 * The elements which represent the producer and consumer positions. The producer position
-	 * is in the first 32 bits and the consumer position is in the second 32 bits. All producers
-	 * and consumers read and write this variable.
-	 */
-	ftlh_atomic64_t prod_cons_pos;
+	ftlh_atomic64_t prod_pos;
+	ftlh_atomic64_t cons_pos;
 	ftlh_atomic64_t size;      /* Size of the queue in nodes */
 	ftlh_atomic64_t items;     /* Number of items in the queue, approximately. */
 } __attribute__ ((aligned));

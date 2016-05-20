@@ -458,14 +458,14 @@ typedef struct ftlh_queue_s * ftlh_queue_t __attribute__ ((aligned(16)));
 
 /**
  * This function creates a new queue of a specified size and returns it. It cannot
- * be resized. The queue can hold up to as many elements as you can get from a 32
+ * be resized. The queue can hold up to as many elements as you can get from a 64
  * bit unsigned integer, minus 1.
  *
  * @param size The number of items the queue can hold.
  *
  * @return Upon success, returns a newly allocated queue. Upon failure, returns NULL.
  */
-FTLH_PUBLIC_FUNC ftlh_queue_t ftlh_queue_create(uint_fast32_t size);
+FTLH_PUBLIC_FUNC ftlh_queue_t ftlh_queue_create(uint_fast64_t size);
 
 
 /**
@@ -515,7 +515,7 @@ FTLH_PUBLIC_FUNC void *ftlh_queue_dequeue(ftlh_queue_t queue);
  *         of the queue, which tells you how many items it can hold. If you pass it
  *         a null pointer, it will return 0.
  */
-FTLH_PUBLIC_FUNC uint_fast32_t ftlh_queue_size(ftlh_queue_t queue) __attribute__ ((warn_unused_result));
+FTLH_PUBLIC_FUNC uint_fast64_t ftlh_queue_size(ftlh_queue_t queue) __attribute__ ((warn_unused_result));
 
 /**
  * This function queries the queue for the number of items it currently holds. Keep
@@ -530,7 +530,7 @@ FTLH_PUBLIC_FUNC uint_fast32_t ftlh_queue_size(ftlh_queue_t queue) __attribute__
  *         it will return 0. All other behavior is undefined with respect to passing
  *         it something which is not a valid queue.
  */
-FTLH_PUBLIC_FUNC uint_fast32_t ftlh_queue_approx_items(ftlh_queue_t queue) __attribute__ ((warn_unused_result));
+FTLH_PUBLIC_FUNC uint_fast64_t ftlh_queue_approx_items(ftlh_queue_t queue) __attribute__ ((warn_unused_result));
 
 /**
  * @}

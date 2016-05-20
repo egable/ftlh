@@ -44,10 +44,17 @@ int main()
 		return 103;
 	}
 
-	printf("Checking producer and consumer positions...\n");
-	if (ftlh_atomic64_get(&queue->prod_cons_pos) != 0) {
-		printf("Producer and consumer position variable not zero: %lu\n",
+	printf("Checking producer position...\n");
+	if (ftlh_atomic64_get(&queue->prod_pos) != 0) {
+		printf("Producer position variable not zero: %lu\n",
 			   ftlh_atomic64_get(&queue->prod_cons_pos));
+		return 104;
+	}
+
+	printf("Checking consumer position...\n");
+	if (ftlh_atomic64_get(&queue->cons_pos) != 0) {
+		printf("Consumer position variable not zero: %lu\n",
+			   ftlh_atomic64_get(&queue->cons_pos));
 		return 104;
 	}
 
@@ -60,7 +67,6 @@ int main()
 	for (n = 0; n < ftlh_atomic64_get(&queue->size); ++n) {
 		printf("Writing node %lu...\n", n);
 		ftlh_atomic_ptr_set(&queue->nodes[n].data, (void*)data);
-		ftlh_atomic64_set(&queue->nodes[n].state, (uint64_t)data);
 	}
 
 	printf("Queue created successfully.\n");

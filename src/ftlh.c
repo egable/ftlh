@@ -39,6 +39,8 @@ ftlh_queue_t ftlh_queue_create(uint_fast32_t size)
 		/* out of memory error */
 		goto fail;
 	}
+
+	//ftlh_atomic64_set(&queue->prod_cons_pos, ((uint_fast64_t)(size-1) << 32));
   
 	goto done;
 
@@ -76,7 +78,7 @@ void ftlh_queue_destroy(ftlh_queue_t *queue_in)
 	return;
 }
 
-uint_fast32_t ftlh_queue_size(ftlh_queue_t queue)
+uint_fast64_t ftlh_queue_size(ftlh_queue_t queue)
 {
 	if (!queue) {
 		return 0;
@@ -85,11 +87,11 @@ uint_fast32_t ftlh_queue_size(ftlh_queue_t queue)
 }
 
 
-uint_fast32_t ftlh_queue_enqueue(ftlh_queue_t queue, void *value)
+uint_fast64_t ftlh_queue_enqueue(ftlh_queue_t queue, void *value)
 {
-	uint_fast32_t items = 0, state = 0;
-	uint_fast64_t prod_cons_pos = 0, new_prod_cons_pos = 0;
-	uint_fast32_t orig_prod_pos = 0, prod_pos = 0, cons_pos = 0;
+	uint_fast64_t items = 0;
+	//uint_fast64_t prod_cons_pos = 0, new_prod_cons_pos = 0;
+	uint_fast64_t orig_prod_pos = 0, prod_pos = 0, cons_pos = 0;
 
 	assert(queue);
 
@@ -102,33 +104,35 @@ uint_fast32_t ftlh_queue_enqueue(ftlh_queue_t queue, void *value)
 	 */
  again:
 	do {
-		prod_cons_pos = ftlh_atomic64_get(&queue->prod_cons_pos);
-		prod_pos = (uint_fast32_t)((prod_cons_pos & FTLH_PROD_MASK) >> 32);
-		orig_prod_pos = prod_pos;
-		cons_pos = (uint_fast32_t)(prod_cons_pos & FTLH_CONS_MASK);
+		void *node_value = NULL;
 
-		if (prod_pos == cons_pos+2 || (prod_pos == 0 && cons_pos == (uint_fast32_t)ftlh_atomic64_get(&queue->size) - 2)) {
+		prod_pos = ftlh_atomic64_get(&queue->prod_pos);
+
+		/* Producers might catch the consumers and need to wait for the clearing of data from a node before writing */
+		node_value = ftlh_atomic_ptr_get(&queue->nodes[prod_pos].data);
+		if (node_value) {
+			ftlh_yield(10);
+			goto again;
+		}
+
+		cons_pos = ftlh_atomic64_get(&queue->cons_pos);
+		if (prod_pos == cons_pos+2 || (prod_pos == 0 && cons_pos == ftlh_atomic64_get(&queue->size) - 2) ||
+			(prod_pos == 1 && cons_pos == ftlh_atomic64_get(&queue->size) - 1))
+		{
 			/* Producer wrapped and caught consumer; we should back off */
 			ftlh_yield(10);
 			goto again;
 		}
 
-		state = ftlh_atomic64_get(&queue->nodes[prod_pos].state);
-		if (state != FTLH_QUEUE_STATE_FREE) {
-			/* Producer wrapped and caught a consumer while it was consuming a node */
-			ftlh_yield(10);
-			goto again;
-		}
-
 		/* The node is empty, and we didn't wrap and catch the consumer(s) */
-		if (prod_pos == 0) {
-			prod_pos = (uint_fast32_t)ftlh_atomic64_get(&queue->size) - 1;
-		} else {
+		orig_prod_pos = prod_pos;
+		if (prod_pos != 0) {
 			--prod_pos;
+		} else {
+			prod_pos = ftlh_atomic64_get(&queue->size) - 1;
 		}
 
-		new_prod_cons_pos = (((uint_fast64_t)prod_pos) << 32) | (uint_fast64_t)cons_pos;
-	} while (!ftlh_atomic64_bool_cas(&queue->prod_cons_pos, prod_cons_pos, new_prod_cons_pos));
+	} while (!ftlh_atomic64_bool_cas(&queue->prod_pos, orig_prod_pos, prod_pos));
 	
 	/* At this point, we just moved the producer to a new node (we won the race),
 	 * and no other producer should see this node. A consumer may be inspecting
@@ -142,12 +146,7 @@ uint_fast32_t ftlh_queue_enqueue(ftlh_queue_t queue, void *value)
 
 	/* Read the current number of items -- which may have already changed, or may
 	 * change again before we return from this function. */
-	items = (uint_fast32_t)ftlh_atomic64_get(&queue->items);
-
-	/* Now we need to tell the consumer(s) that this node is filled
-	 * and ready for consumption.
-	 */
-	ftlh_atomic64_set(&queue->nodes[orig_prod_pos].state, FTLH_QUEUE_STATE_FULL);
+	items = ftlh_atomic64_get(&queue->items);
 
 	return items;
 }
@@ -155,9 +154,8 @@ uint_fast32_t ftlh_queue_enqueue(ftlh_queue_t queue, void *value)
 void *ftlh_queue_dequeue(ftlh_queue_t queue)
 {
 	void *value = NULL;
-	uint_fast32_t state = 0;
-	uint_fast64_t prod_cons_pos = 0, new_prod_cons_pos = 0;
-	uint_fast32_t prod_pos = 0, cons_pos = 0, orig_cons_pos = 0;
+	//uint_fast64_t prod_cons_pos = 0, new_prod_cons_pos = 0;
+	uint_fast64_t cons_pos = 0, orig_cons_pos = 0;
 
 	assert(queue);
 
@@ -169,55 +167,41 @@ void *ftlh_queue_dequeue(ftlh_queue_t queue)
 	 * If it was changed on us, try it all over again
 	 */
 	do {
-		prod_cons_pos = ftlh_atomic64_get(&queue->prod_cons_pos);
-		prod_pos = (uint_fast32_t)((prod_cons_pos & FTLH_PROD_MASK) >> 32);
-		cons_pos = (uint_fast32_t)(prod_cons_pos & FTLH_CONS_MASK);
-		orig_cons_pos = cons_pos;
+		cons_pos = ftlh_atomic64_get(&queue->cons_pos);
 
-		state = ftlh_atomic64_get(&queue->nodes[cons_pos].state);
-
-		if (state != FTLH_QUEUE_STATE_FULL && prod_pos == cons_pos) {
-			/* Nothing to do; can't move cons_pos past prod_pos */
+		value = ftlh_atomic_ptr_get(&queue->nodes[cons_pos].data);
+		if (!value) {
 			goto fail;
 		}
 
-		if (cons_pos == 0) {
-			cons_pos = queue->size - 1;
-		} else {
+		orig_cons_pos = cons_pos;
+		if (cons_pos != 0) {
 			--cons_pos;
+		} else {
+			cons_pos = ftlh_atomic64_get(&queue->size) - 1;
 		}
 
-		new_prod_cons_pos = ((uint_fast64_t)prod_pos << 32) | cons_pos;
-	} while (!ftlh_atomic64_bool_cas(&queue->prod_cons_pos, prod_cons_pos, new_prod_cons_pos));
+	} while (!ftlh_atomic64_bool_cas(&queue->cons_pos, orig_cons_pos, cons_pos));
 	
 	/* At this point, we just moved the consumer position to a new node,
 	 * and no other consumer should see this node. A producer may see
 	 * this node, but should not touch it because it is full.
 	 */
-	if (ftlh_atomic64_get(&queue->nodes[orig_cons_pos].state) != FTLH_QUEUE_STATE_FULL) {
-		/* Nothing to read from this node */
-		goto fail;
-	}
-
-	value = ftlh_atomic_ptr_get(&queue->nodes[orig_cons_pos].data);
+	ftlh_atomic_ptr_set(&queue->nodes[orig_cons_pos].data, NULL);
 
 	/* We can now decrement the number of items in the queue. */
 	ftlh_atomic64_dec(&queue->items);
 
-	/* Now we need to tell the producer(s) that this node is empty
-	 * and ready for production.
-	 */
-	ftlh_atomic64_set(&queue->nodes[orig_cons_pos].state, FTLH_QUEUE_STATE_FREE);
 
  fail:
 	return value;
 }
 
 
-uint_fast32_t ftlh_queue_approx_items(ftlh_queue_t queue)
+uint_fast64_t ftlh_queue_approx_items(ftlh_queue_t queue)
 {
 	if (queue) {
-		return (uint_fast32_t)ftlh_atomic64_get(&queue->items);
+		return ftlh_atomic64_get(&queue->items);
 	}
 	return 0;
 }

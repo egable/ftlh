@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <pthread.h>
+#include <time.h>
 
 #define _UNUSED __attribute__ ((unused))
 #define PASS 0
@@ -11,14 +12,14 @@
 #define SKIP 77
 #define HARD_FAIL 99
 
-#define ITEM_COUNT 100000
-
 #include "ftlh_private.h"
+
+#define ITEM_COUNT 3000000
 
 ftlh_queue_t queue = NULL;
 size_t odd_count = 0, even_count = 0;
 pthread_mutex_t start_mutex;
-ftlh_atomic64_t prod1_done = 0, prod2_done = 0;
+ftlh_atomic64_t prod1_done = 0, prod2_done = 0, cons_done = 0;
 
 void *producer_thread(void *start_val)
 {
@@ -55,6 +56,8 @@ void *consumer_thread(void *ignored __attribute__((unused)))
 		}
 	} while (!ftlh_atomic64_get(&prod1_done) || !ftlh_atomic64_get(&prod2_done) ||
 			 value != NULL || ftlh_queue_approx_items(queue) != 0);
+	
+	ftlh_atomic64_inc(&cons_done);
 	printf("Consumer finished dequeing items.\n");
 
 	return NULL;
@@ -70,7 +73,7 @@ int main()
 	 * testing that aspect in this test case.
 	 */
 	printf("Creating queue...\n");
-	queue = ftlh_queue_create((2 * ITEM_COUNT) + 1);
+	queue = ftlh_queue_create((ITEM_COUNT * 2) + 1);
 	
 	printf("Checking if queue exists...\n");
 	if (!queue) {
@@ -78,7 +81,7 @@ int main()
 		return FAIL;
 	}
 
-	printf("Testing dual enqueue with dual thread dequeue...\n");
+	printf("Testing multi-thread enqueue with single thread dequeue...\n");
 	pthread_mutex_init(&start_mutex, NULL);
 	pthread_mutex_lock(&start_mutex);
 	
@@ -86,24 +89,30 @@ int main()
 	pthread_create(&prod2, NULL, producer_thread, (void*)2);
 	pthread_create(&cons1, NULL, consumer_thread, NULL);
 	pthread_create(&cons2, NULL, consumer_thread, NULL);
+	ftlh_yield(10000);
 
 	/* Let the race begin! */
 	ftlh_current_time(&start);
 	pthread_mutex_unlock(&start_mutex);
 
+	while (!ftlh_atomic64_get(&prod1_done) || !ftlh_atomic64_get(&prod2_done) ||
+		   ftlh_atomic64_get(&cons_done) != 2)
+	{
+		ftlh_yield(1);
+	}
+	ftlh_current_time(&end);
+
 	pthread_join(prod1, NULL);
 	pthread_join(prod2, NULL);
 	pthread_join(cons1, NULL);
-	pthread_join(cons2, NULL);
-	ftlh_current_time(&end);
 
-	duration = ftlh_time_diff_sec(&end, &start);
+	duration = (double)ftlh_time_diff_usec(&end, &start) / (double)1000000;
 
 	/* All threads have finished, so check the counts */
 	printf("Odd items received: %lu\n", ftlh_atomic64_get(&odd_count));
 	printf("Even items received: %lu\n", ftlh_atomic64_get(&even_count));
 	printf("Time taken in seconds: %lf\n", duration);
-	printf("Enqueue / Dequeue op pairs per second: %lf\n", (double)(2*ITEM_COUNT) / duration);
+	printf("Enqueue / Dequeue op pairs per second: %lf\n", (double)(ITEM_COUNT * 2) / duration);
 	if (ftlh_atomic64_get(&odd_count) != ITEM_COUNT ||
 		ftlh_atomic64_get(&even_count) != ITEM_COUNT)
 	{

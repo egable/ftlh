@@ -17,8 +17,7 @@ int main()
 	ftlh_queue_t queue = NULL;
 	void *value = NULL;
 	uintptr_t data = 0;
-	uint64_t prod_cons_pos = 0;
-	uint32_t prod_pos = 0, cons_pos = 0;
+	uint64_t prod_pos = 0, cons_pos = 0;
 	
 	printf("Creating queue...\n");
 	queue = ftlh_queue_create(256);
@@ -48,12 +47,10 @@ int main()
 	}
 
 	printf("Checking location of producer and consumer pointers...\n");
-	prod_cons_pos = ftlh_atomic64_get(&queue->prod_cons_pos);
-	printf("prod_cons_pos = %lu\n", prod_cons_pos);
-	prod_pos = (uint32_t)((prod_cons_pos & 0xFFFFFFFF00000000UL) >> 32);
-	cons_pos = (uint32_t)(prod_cons_pos & 0x00000000FFFFFFFFUL);
-	printf("prod_pos = %u\n", prod_pos);
-	printf("cons_pos = %u\n", cons_pos);
+	prod_pos = ftlh_atomic64_get(&queue->prod_pos);
+	cons_pos = ftlh_atomic64_get(&queue->cons_pos);
+	printf("prod_pos = %lu\n", prod_pos);
+	printf("cons_pos = %lu\n", cons_pos);
 	if (prod_pos != (ftlh_atomic64_get(&queue->size) - 1)) {
 		printf("Producer position is incorrect.\n");
 		return 103;
@@ -67,12 +64,6 @@ int main()
 	if ((uintptr_t)ftlh_atomic_ptr_get(&queue->nodes[0].data) != data) {
 		printf("Data stored at node 0 is incorrect.\n");
 		return 105;
-	}
-
-	printf("Checking state of node 0...\n");
-	if (ftlh_atomic64_get(&queue->nodes[0].state) != FTLH_QUEUE_STATE_FULL) {
-		printf("State of node 0 is incorrect.\n");
-		return 106;
 	}
 
 	printf("Dequeing item from queue...\n");
@@ -90,12 +81,10 @@ int main()
 	}
 
 	printf("Checking location of producer and consumer pointers...\n");
-	prod_cons_pos = ftlh_atomic64_get(&queue->prod_cons_pos);
-	printf("prod_cons_pos = %lu\n", prod_cons_pos);
-	prod_pos = (uint32_t)((prod_cons_pos & 0xFFFFFFFF00000000UL) >> 32);
-	cons_pos = (uint32_t)(prod_cons_pos & 0x00000000FFFFFFFFUL);
-	printf("prod_pos = %u\n", prod_pos);
-	printf("cons_pos = %u\n", cons_pos);
+	prod_pos = ftlh_atomic64_get(&queue->prod_pos);
+	cons_pos = ftlh_atomic64_get(&queue->cons_pos);
+	printf("prod_pos = %lu\n", prod_pos);
+	printf("cons_pos = %lu\n", cons_pos);
 	if (prod_pos != (ftlh_atomic64_get(&queue->size) - 1)) {
 		printf("Producer position is incorrect.\n");
 		return 103;
@@ -103,12 +92,6 @@ int main()
 	if (cons_pos != prod_pos) {
 		printf("Consumer position is incorrect.\n");
 		return 104;
-	}
-
-	printf("Checking state of node 0...\n");
-	if (ftlh_atomic64_get(&queue->nodes[0].state) != FTLH_QUEUE_STATE_FREE) {
-		printf("State of node 0 is incorrect.\n");
-		return 106;
 	}
 
 	/* If this doesn't segfault, then it passes. */

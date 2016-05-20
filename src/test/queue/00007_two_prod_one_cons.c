@@ -14,7 +14,7 @@
 
 #include "ftlh_private.h"
 
-#define ITEM_COUNT 100000
+#define ITEM_COUNT 3000000
 
 ftlh_queue_t queue = NULL;
 size_t odd_count = 0, even_count = 0;
